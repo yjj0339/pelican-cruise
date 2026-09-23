@@ -2,6 +2,8 @@
 
 **在线地址：https://yjj0339.github.io/pelican-cruise/**
 
+手机扫码直达：`qr-live.png`　·　所有作品入口：https://yjj0339.github.io/
+
 一只鹈鹕骑着一辆青绿色单车沿着海滨小路往前赶的 2D 动画，纯手写 Canvas 绘制，零外部资源、零依赖，单文件 `index.html`。
 
 ## 画面内容
