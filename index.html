@@ -1,0 +1,1193 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#bfe9fb" />
+<title>鹈鹕骑行 · 海滨晨风</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: #eaf7ff;
+    color: #21465c;
+    font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, -apple-system, "Segoe UI", sans-serif;
+    overflow: hidden;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+  }
+  #stage { display: block; width: 100vw; height: 100vh; touch-action: manipulation; }
+
+  .panel {
+    position: fixed;
+    background: rgba(255, 255, 255, .72);
+    border: 1px solid rgba(31, 56, 74, .10);
+    border-radius: 16px;
+    backdrop-filter: blur(10px) saturate(1.2);
+    -webkit-backdrop-filter: blur(10px) saturate(1.2);
+    box-shadow: 0 8px 26px rgba(46, 92, 122, .13);
+  }
+
+  .title {
+    left: max(14px, env(safe-area-inset-left));
+    top: max(14px, env(safe-area-inset-top));
+    padding: 12px 16px 13px;
+    max-width: 62vw;
+  }
+  .title h1 {
+    margin: 0;
+    font-size: 19px;
+    font-weight: 700;
+    letter-spacing: .04em;
+    color: #21465c;
+  }
+  .title p {
+    margin: 5px 0 0;
+    font-size: 12px;
+    line-height: 1.5;
+    color: #5d7d92;
+  }
+
+  .hud {
+    left: 50%;
+    transform: translateX(-50%);
+    bottom: max(16px, env(safe-area-inset-bottom));
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+  }
+  .btn {
+    appearance: none;
+    border: 0;
+    cursor: pointer;
+    font-family: inherit;
+    color: #1c4257;
+    background: rgba(255, 255, 255, .9);
+    border-radius: 12px;
+    height: 40px;
+    min-width: 40px;
+    padding: 0 14px;
+    font-size: 14px;
+    font-weight: 600;
+    box-shadow: 0 2px 0 rgba(31, 86, 120, .10), inset 0 0 0 1px rgba(31, 86, 120, .12);
+    transition: transform .12s ease, background .12s ease;
+  }
+  .btn:active { transform: translateY(1px) scale(.97); background: #ffffff; }
+  .btn.on { background: #7fd8ef; color: #08333f; }
+  .slider-wrap { display: flex; align-items: center; gap: 8px; padding: 0 2px; }
+  .slider-wrap span { font-size: 12px; color: #56788d; font-weight: 600; }
+  input[type=range] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 108px;
+    height: 22px;
+    background: transparent;
+    cursor: pointer;
+  }
+  input[type=range]::-webkit-slider-runnable-track {
+    height: 7px; border-radius: 99px;
+    background: linear-gradient(90deg, #8fd8f0, #ffe0a3);
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 18px; height: 18px; margin-top: -5.5px;
+    border-radius: 50%; background: #fff; border: 2px solid #4fb6d6;
+    box-shadow: 0 1px 4px rgba(20, 70, 96, .28);
+  }
+  input[type=range]::-moz-range-track {
+    height: 7px; border-radius: 99px;
+    background: linear-gradient(90deg, #8fd8f0, #ffe0a3);
+  }
+  input[type=range]::-moz-range-thumb {
+    width: 16px; height: 16px; border-radius: 50%;
+    background: #fff; border: 2px solid #4fb6d6;
+  }
+
+  @media (max-width: 560px) {
+    .title { padding: 10px 13px 11px; max-width: 70vw; }
+    .title h1 { font-size: 16px; }
+    .title p { font-size: 11px; }
+    .hud { gap: 8px; padding: 8px 10px; border-radius: 14px; }
+    .btn { height: 36px; padding: 0 12px; font-size: 13px; border-radius: 10px; }
+    input[type=range] { width: 74px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .btn { transition: none; }
+  }
+</style>
+</head>
+<body>
+<canvas id="stage" aria-label="一只鹈鹕骑着自行车沿海滨小路前行的 2D 动画"></canvas>
+
+<div class="panel title">
+  <h1>鹈鹕骑行 · 海滨晨风</h1>
+  <p>纯 Canvas 手绘动画 · 点击画面 / 空格让它跃一下</p>
+</div>
+
+<div class="panel hud">
+  <button class="btn on" id="playBtn" type="button">暂停</button>
+  <div class="slider-wrap">
+    <span>速度</span>
+    <input id="speed" type="range" min="0.3" max="2" step="0.05" value="1" aria-label="骑行速度" />
+  </div>
+  <button class="btn" id="hopBtn" type="button">跃起</button>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var TAU = Math.PI * 2;
+  var cvs = document.getElementById('stage');
+  var ctx = cvs.getContext('2d', { alpha: false });
+
+  /* =========================================================
+     0. 视口与排版（设计空间：宽 Wd × 高 Hd，地面线 GL）
+     ========================================================= */
+  var W = 0, H = 0, DPR = 1, S = 1;
+  var Wd = 900, Hd = 760, GL = 560, RS = 1, BX = 360;
+  var seaTop = 402, seaBot = 518;
+  var TILE = 1600;
+
+  function resize() {
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    W = Math.max(240, Math.round(cvs.clientWidth || window.innerWidth));
+    H = Math.max(240, Math.round(cvs.clientHeight || window.innerHeight));
+    cvs.width = Math.round(W * DPR);
+    cvs.height = Math.round(H * DPR);
+
+    S = H / 760;
+    if (W / S < 380) S = W / 380;
+    if (W / S > 1700) S = W / 1700;
+    S = Math.min(Math.max(S, 0.26), 3.4);
+
+    Wd = W / S;
+    Hd = H / S;
+    GL = Hd - 200;
+    seaTop = GL - 158;
+    seaBot = GL - 42;
+
+    RS = Math.min(1, Wd / 470);
+    BX = Math.min(Wd * 0.40, Wd - 200 * RS);
+    BX = Math.max(BX, 140 * RS);
+  }
+  window.addEventListener('resize', resize);
+  window.addEventListener('orientationchange', function () { setTimeout(resize, 240); });
+
+  /* =========================================================
+     1. 确定性随机器 + 景物播种（每帧复用，不重建）
+     ========================================================= */
+  function rng(seed) {
+    var s = seed >>> 0;
+    return function () { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+  }
+
+  var clouds = [], hillsFar = [], hillsNear = [], trees = [], bushes = [],
+      pebbles = [], tufts = [], boats = [], birds = [], ripples = [];
+
+  (function seedScenery() {
+    var r = rng(775533), i;
+    for (i = 0; i < 9; i++) {
+      clouds.push({ u: i / 9 + r() * 0.035, y: 0.10 + r() * 0.54, s: 0.6 + r() * 0.85 });
+    }
+    boats.push({ u: 0.04, s: 0.85 }, { u: 0.30, s: 1.15 }, { u: 0.58, s: 0.7 }, { u: 0.83, s: 1.0 });
+    for (i = 0; i < 5; i++) hillsFar.push({ u: i / 5 + r() * 0.05, w: 280 + r() * 340, h: 48 + r() * 56 });
+    for (i = 0; i < 7; i++) hillsNear.push({ u: i / 7 + r() * 0.04, w: 180 + r() * 250, h: 30 + r() * 44 });
+    for (i = 0; i < 13; i++) {
+      var pr = r();
+      trees.push({ u: i / 13 + r() * 0.04, s: 0.7 + r() * 0.78, type: pr < 0.6 ? 0 : (pr < 0.82 ? 1 : 2) });
+    }
+    for (i = 0; i < 24; i++) bushes.push({ u: i / 24 + r() * 0.028, s: 0.55 + r() * 0.8 });
+    for (i = 0; i < 78; i++) pebbles.push({ u: i / 78 + r() * 0.01, row: r(), s: 0.5 + r() * 1.15, tone: r() });
+    for (i = 0; i < 50; i++) tufts.push({ u: i / 50 + r() * 0.014, h: 24 + r() * 46, s: 0.65 + r() * 0.75, tone: r(), ph: r() * TAU });
+    for (i = 0; i < 6; i++) birds.push({ u: r(), y: 0.05 + r() * 0.26, s: 0.55 + r() * 0.55, ph: r() * TAU });
+    for (i = 0; i < 34; i++) ripples.push({ u: i / 34 + r() * 0.02, row: r(), w: 22 + r() * 52, ph: r() * TAU });
+  })();
+
+  var dist = 0;
+
+  /* 把层内世界坐标按视差因子循环铺满屏幕 */
+  function copies(f, cb) {
+    var base = -dist * f;
+    var k0 = Math.floor((-TILE - base) / TILE);
+    var k1 = Math.ceil((Wd + TILE - base) / TILE);
+    for (var k = k0; k <= k1; k++) cb(base + k * TILE);
+  }
+
+  /* =========================================================
+     2. 画笔小工具
+     ========================================================= */
+  function circle(x, y, r) { ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill(); }
+  function ell(x, y, rx, ry, rot) { ctx.beginPath(); ctx.ellipse(x, y, rx, ry, rot || 0, 0, TAU); ctx.fill(); }
+  function seg(x1, y1, x2, y2, w, col, cap) {
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2);
+    ctx.lineWidth = w; ctx.strokeStyle = col; ctx.lineCap = cap || 'round'; ctx.stroke();
+  }
+  function rr(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y); ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r); ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h); ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+  }
+  function quadPts(p0, p1, p2, n) {
+    var out = [], i, t, mt;
+    for (i = 0; i <= n; i++) {
+      t = i / n; mt = 1 - t;
+      out.push([
+        mt * mt * p0[0] + 2 * mt * t * p1[0] + t * t * p2[0],
+        mt * mt * p0[1] + 2 * mt * t * p1[1] + t * t * p2[1]
+      ]);
+    }
+    return out;
+  }
+  function normals(list) {
+    var out = [], n = list.length - 1, i, a, b, dx, dy, len;
+    for (i = 0; i <= n; i++) {
+      a = list[Math.max(0, i - 1)]; b = list[Math.min(n, i + 1)];
+      dx = b[0] - a[0]; dy = b[1] - a[1]; len = Math.sqrt(dx * dx + dy * dy) || 1;
+      out.push([-dy / len, dx / len]);
+    }
+    return out;
+  }
+  function ribbonPath(list, w0, w1) {
+    var nrm = normals(list), n = list.length - 1, i, t, w, a, b;
+    ctx.beginPath();
+    for (i = 0; i <= n; i++) {
+      t = i / n; w = w0 + (w1 - w0) * t;
+      a = [list[i][0] + nrm[i][0] * w, list[i][1] + nrm[i][1] * w];
+      if (i === 0) ctx.moveTo(a[0], a[1]); else ctx.lineTo(a[0], a[1]);
+    }
+    for (i = n; i >= 0; i--) {
+      t = i / n; w = w0 + (w1 - w0) * t;
+      b = [list[i][0] - nrm[i][0] * w, list[i][1] - nrm[i][1] * w];
+      ctx.lineTo(b[0], b[1]);
+    }
+    ctx.closePath();
+  }
+  function wavy(x0, y0, x1, y1, amp, freq, phase, n) {
+    var out = [], i, t, x, y;
+    for (i = 0; i <= n; i++) {
+      t = i / n;
+      x = x0 + (x1 - x0) * t;
+      y = y0 + (y1 - y0) * t + Math.sin(phase + t * freq) * amp * (0.25 + t * 0.75);
+      out.push([x, y]);
+    }
+    return out;
+  }
+
+  /* 双骨 IK：返回膝/肘关节位置，bend=-1 让小腿向前弯 */
+  function ik(ax, ay, bx, by, l1, l2, bend) {
+    var dx = bx - ax, dy = by - ay;
+    var d = Math.sqrt(dx * dx + dy * dy);
+    var maxD = (l1 + l2) * 0.995;
+    if (d > maxD) d = maxD;
+    if (d < 0.001) d = 0.001;
+    var base = Math.atan2(dy, dx);
+    var cosA = (d * d + l1 * l1 - l2 * l2) / (2 * d * l1);
+    var A = Math.acos(Math.max(-1, Math.min(1, cosA)));
+    var ang = base + bend * A;
+    return { x: ax + Math.cos(ang) * l1, y: ay + Math.sin(ang) * l1 };
+  }
+
+  /* =========================================================
+     3. 状态
+     ========================================================= */
+  var st = {
+    playing: true,
+    speed: 1,
+    time: 0,
+    hopT: -1,
+    hopY: 0,
+    hopTilt: 0,
+    nextRing: 3.6,
+    rings: [],
+    dust: [],
+    dustAcc: 0,
+    last: 0
+  };
+
+  var reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (reduced) {
+    st.playing = false;
+    document.getElementById('playBtn').textContent = '播放';
+    document.getElementById('playBtn').classList.remove('on');
+  }
+
+  function doHop() {
+    if (st.hopT >= 0) return;
+    st.hopT = 0;
+    st.hopY = 0;
+    st.hopTilt = 0;
+    for (var i = 0; i < 12; i++) spawnDust(true);
+  }
+
+  function updateHop(dt) {
+    if (st.hopT < 0) return;
+    st.hopT += dt;
+    var p = st.hopT / 0.92;
+    if (p >= 1) { st.hopT = -1; st.hopY = 0; st.hopTilt = 0; return; }
+    st.hopY = Math.sin(Math.PI * p) * 64;
+    st.hopTilt = Math.sin(Math.PI * p) * 0.055;
+  }
+
+  function spawnDust(burst) {
+    var backx = BX + (-78 - 12) * RS;
+    st.dust.push({
+      x: backx + (Math.random() * 22 - 8) * RS,
+      y: GL - (3 + Math.random() * 7) * RS,
+      vx: -(40 + Math.random() * (burst ? 150 : 95)) * RS,
+      vy: -(6 + Math.random() * (burst ? 70 : 34)) * RS,
+      r: (2.2 + Math.random() * 4.6) * RS,
+      life: 0,
+      max: burst ? 0.75 + Math.random() * 0.4 : 0.55 + Math.random() * 0.45
+    });
+  }
+
+  function updateDust(dt) {
+    st.dustAcc += dt * (7 + 34 * st.speed);
+    var guard = 0;
+    while (st.dustAcc >= 1 && guard++ < 40) { st.dustAcc -= 1; spawnDust(false); }
+    for (var i = st.dust.length - 1; i >= 0; i--) {
+      var d = st.dust[i];
+      d.x += d.vx * dt;
+      d.y += d.vy * dt;
+      d.vy += 62 * dt * RS;
+      d.vx *= 0.986;
+      d.life += dt;
+      if (d.life >= d.max) st.dust.splice(i, 1);
+    }
+  }
+
+  function updateRings(dt) {
+    st.nextRing -= dt;
+    if (st.nextRing <= 0) {
+      st.nextRing = 6.5 + Math.random() * 5;
+      st.rings.push({ x: BX + 46 * RS, y: GL - 122 * RS, t: 0 });
+    }
+    for (var i = st.rings.length - 1; i >= 0; i--) {
+      st.rings[i].t += dt;
+      if (st.rings[i].t > 1.35) st.rings.splice(i, 1);
+    }
+  }
+
+  /* =========================================================
+     4. 背景绘制
+     ========================================================= */
+  function drawSky() {
+    var g = ctx.createLinearGradient(0, -10, 0, seaTop + 14);
+    g.addColorStop(0, '#74c9f2');
+    g.addColorStop(0.42, '#aee3fa');
+    g.addColorStop(0.78, '#e4f5ff');
+    g.addColorStop(1, '#fff6df');
+    ctx.fillStyle = g;
+    ctx.fillRect(-12, -12, Wd + 24, seaTop + 16);
+  }
+
+  function drawSun() {
+    var sx = Wd * 0.775, sy = seaTop * 0.30, r0 = 44;
+    var g = ctx.createRadialGradient(sx, sy, r0 * 0.25, sx, sy, r0 * 4.6);
+    g.addColorStop(0, 'rgba(255,246,201,.95)');
+    g.addColorStop(0.2, 'rgba(255,238,170,.52)');
+    g.addColorStop(0.55, 'rgba(255,240,190,.17)');
+    g.addColorStop(1, 'rgba(255,245,210,0)');
+    ctx.fillStyle = g;
+    circle(sx, sy, r0 * 4.6);
+    ctx.fillStyle = '#fffce9';
+    circle(sx, sy, r0 * 0.6);
+  }
+
+  function cloudShape() {
+    ctx.beginPath();
+    ctx.arc(-40, 4, 21, 0, TAU);
+    ctx.arc(-15, -8, 28, 0, TAU);
+    ctx.arc(15, -11, 23, 0, TAU);
+    ctx.arc(41, 2, 18, 0, TAU);
+    ctx.arc(6, 12, 22, 0, TAU);
+    ctx.arc(-24, 13, 19, 0, TAU);
+  }
+
+  function drawClouds() {
+    for (var i = 0; i < clouds.length; i++) {
+      (function (c) {
+        var cy = seaTop * c.y + 26;
+        copies(0.055, function (x0) {
+          ctx.save();
+          ctx.translate(x0 + c.u * TILE, cy);
+          ctx.scale(c.s, c.s);
+          ctx.fillStyle = 'rgba(214,232,245,.75)';
+          cloudShape();
+          ctx.save(); ctx.translate(0, 5); ctx.fill(); ctx.restore();
+          ctx.fillStyle = 'rgba(255,255,255,.96)';
+          cloudShape(); ctx.fill();
+          ctx.restore();
+        });
+      })(clouds[i]);
+    }
+  }
+
+  function drawBirds() {
+    for (var i = 0; i < birds.length; i++) {
+      (function (b) {
+        var by = seaTop * b.y + 18;
+        copies(0.03, function (x0) {
+          var flap = Math.sin(st.time * 2.6 + b.ph) * 4;
+          var x = x0 + b.u * TILE, y = by + Math.sin(st.time * 1.1 + b.ph) * 5;
+          ctx.save();
+          ctx.translate(x, y);
+          ctx.scale(b.s, b.s);
+          ctx.strokeStyle = 'rgba(90,130,155,.55)';
+          ctx.lineWidth = 2.1;
+          ctx.lineCap = 'round';
+          ctx.beginPath();
+          ctx.moveTo(-11, flap);
+          ctx.quadraticCurveTo(-5, -4 + flap * 0.4, 0, 1);
+          ctx.quadraticCurveTo(5, -4 + flap * 0.4, 11, flap);
+          ctx.stroke();
+          ctx.restore();
+        });
+      })(birds[i]);
+    }
+  }
+
+  function drawSea() {
+    var g = ctx.createLinearGradient(0, seaTop, 0, seaBot + 4);
+    g.addColorStop(0, '#a7e3ef');
+    g.addColorStop(0.45, '#75d1e5');
+    g.addColorStop(1, '#5cc4de');
+    ctx.fillStyle = g;
+    ctx.fillRect(-12, seaTop, Wd + 24, seaBot - seaTop + 6);
+
+    ctx.fillStyle = 'rgba(255,255,255,.55)';
+    ctx.fillRect(-12, seaTop - 1.5, Wd + 24, 3);
+
+    var shimmer = 1;
+    for (var i = 0; i < ripples.length; i++) {
+      (function (rp) {
+        var y = seaTop + 10 + rp.row * (seaBot - seaTop - 16);
+        var f = 0.08 + rp.row * 0.055;
+        copies(f, function (x0) {
+          var a = 0.14 + 0.24 * (0.5 + 0.5 * Math.sin(st.time * 1.7 + rp.ph));
+          ctx.fillStyle = 'rgba(255,255,255,' + a.toFixed(3) + ')';
+          ctx.fillRect(x0 + rp.u * TILE, y, rp.w * (0.7 + 0.3 * shimmer), 2.4);
+        });
+      })(ripples[i]);
+    }
+  }
+
+  function drawBoats() {
+    for (var i = 0; i < boats.length; i++) {
+      (function (b) {
+        copies(0.16, function (x0) {
+          var x = x0 + b.u * TILE, y = seaTop + 13;
+          ctx.save();
+          ctx.translate(x, y);
+          ctx.scale(b.s, b.s);
+          var bob = Math.sin(st.time * 1.3 + b.u * 9) * 1.4;
+          ctx.translate(0, bob);
+          ctx.fillStyle = 'rgba(255,255,255,.42)';
+          ell(0, 9, 20, 2.6, 0);
+          ctx.fillStyle = '#fdfdfb';
+          ctx.beginPath();
+          ctx.moveTo(2, 8); ctx.quadraticCurveTo(12, 2, 2, -1);
+          ctx.quadraticCurveTo(7, 4, 2, 8);
+          ctx.fill();
+          ctx.fillStyle = '#fbf6ea';
+          ctx.beginPath();
+          ctx.moveTo(-1, -30); ctx.lineTo(-1, 6); ctx.lineTo(16, 6); ctx.closePath();
+          ctx.fill();
+          ctx.strokeStyle = '#c9d7de';
+          ctx.lineWidth = 1.2;
+          ctx.beginPath(); ctx.moveTo(-1, -32); ctx.lineTo(-1, 7); ctx.stroke();
+          ctx.fillStyle = '#e8b77a';
+          rr(-16, 5, 32, 6, 3); ctx.fill();
+          ctx.restore();
+        });
+      })(boats[i]);
+    }
+  }
+
+  function drawHillBand(bumps, baseY, f, color) {
+    ctx.fillStyle = color;
+    copies(f, function (x0) {
+      var i, b, x;
+      ctx.beginPath();
+      for (i = 0; i < bumps.length; i++) {
+        b = bumps[i];
+        x = x0 + b.u * TILE;
+        ctx.moveTo(x - b.w * 0.5, baseY + 8);
+        ctx.quadraticCurveTo(x, baseY - b.h * 1.5, x + b.w * 0.5, baseY + 8);
+      }
+      ctx.fill();
+    });
+    ctx.fillRect(-12, baseY, Wd + 24, 260);
+  }
+
+  function drawHills() {
+    drawHillBand(hillsFar, GL - 118, 0.13, '#c8e7e3');
+    drawHillBand(hillsNear, GL - 74, 0.24, '#a3d9b8');
+    var g = ctx.createLinearGradient(0, seaTop - 10, 0, GL - 30);
+    g.addColorStop(0, 'rgba(255,255,255,.5)');
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(-12, seaTop - 10, Wd + 24, (GL - 30) - (seaTop - 10));
+  }
+
+  function treeShape(type, s) {
+    ctx.save();
+    ctx.scale(s, s);
+    if (type === 1) {
+      ctx.fillStyle = '#c49a6c';
+      rr(-4, -6, 8, 38, 3); ctx.fill();
+      ctx.fillStyle = '#57b878';
+      ctx.beginPath();
+      ctx.moveTo(0, -92); ctx.lineTo(30, -46); ctx.lineTo(18, -46);
+      ctx.lineTo(38, -14); ctx.lineTo(-38, -14); ctx.lineTo(-18, -46);
+      ctx.lineTo(-30, -46); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,.28)';
+      ctx.beginPath();
+      ctx.moveTo(0, -92); ctx.lineTo(14, -66); ctx.lineTo(-2, -66); ctx.closePath(); ctx.fill();
+    } else if (type === 2) {
+      ctx.strokeStyle = '#cf9f68';
+      ctx.lineWidth = 7;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(0, 32);
+      ctx.quadraticCurveTo(4, -12, -14, -50);
+      ctx.stroke();
+      ctx.fillStyle = '#4fb377';
+      for (var i = 0; i < 6; i++) {
+        var a = -Math.PI + (i / 5) * Math.PI;
+        ctx.save();
+        ctx.translate(-14, -50);
+        ctx.rotate(a * 0.62);
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.quadraticCurveTo(16, -10, 40, -6);
+        ctx.quadraticCurveTo(18, 6, 0, 0);
+        ctx.fill();
+        ctx.restore();
+      }
+      ctx.fillStyle = '#6fc98b';
+      circle(-14, -54, 7);
+    } else {
+      ctx.fillStyle = '#c49a6c';
+      rr(-3.5, -8, 7, 42, 3); ctx.fill();
+      ctx.fillStyle = '#5dbc7c';
+      circle(-14, -22, 15);
+      circle(8, -26, 17);
+      circle(-2, -42, 19);
+      ctx.fillStyle = 'rgba(255,255,255,.3)';
+      circle(2, -50, 9);
+    }
+    ctx.restore();
+  }
+
+  function drawTrees() {
+    var baseY = GL - 34;
+    for (var i = 0; i < trees.length; i++) {
+      (function (tr) {
+        copies(0.42, function (x0) {
+          ctx.save();
+          ctx.translate(x0 + tr.u * TILE, baseY);
+          treeShape(tr.type, tr.s);
+          ctx.restore();
+        });
+      })(trees[i]);
+    }
+  }
+
+  function drawBushes() {
+    var baseY = GL + 3;
+    for (var i = 0; i < bushes.length; i++) {
+      (function (b) {
+        copies(0.78, function (x0) {
+          ctx.save();
+          ctx.translate(x0 + b.u * TILE, baseY);
+          ctx.scale(b.s, b.s);
+          ctx.fillStyle = '#6cc264';
+          circle(-13, -6, 13);
+          circle(9, -8, 15);
+          circle(-2, -18, 14);
+          ctx.fillStyle = '#8dd67c';
+          circle(-1, -20, 9);
+          ctx.restore();
+        });
+      })(bushes[i]);
+    }
+  }
+
+  function drawRoad() {
+    var g = ctx.createLinearGradient(0, GL, 0, Hd + 8);
+    g.addColorStop(0, '#f9eed7');
+    g.addColorStop(0.4, '#f2e2c2');
+    g.addColorStop(1, '#e6cfa6');
+    ctx.fillStyle = g;
+    ctx.fillRect(-12, GL, Wd + 24, Hd - GL + 16);
+
+    ctx.fillStyle = 'rgba(255,255,255,.6)';
+    ctx.fillRect(-12, GL - 2, Wd + 24, 3);
+    ctx.fillStyle = 'rgba(198,170,124,.45)';
+    ctx.fillRect(-12, GL + 3, Wd + 24, 2);
+
+    var span = Hd - GL - 6;
+    for (var i = 0; i < pebbles.length; i++) {
+      (function (p) {
+        var depth = 0.06 + p.row * p.row * 0.94;
+        var y = GL + 12 + depth * span;
+        var sc = (0.45 + depth * 1.15) * p.s;
+        copies(0.55 + depth * 0.7, function (x0) {
+          var x = x0 + p.u * TILE;
+          ctx.fillStyle = p.tone < 0.34 ? 'rgba(214,190,148,.75)'
+                        : p.tone < 0.68 ? 'rgba(233,214,178,.85)'
+                        : 'rgba(255,252,244,.9)';
+          ell(x, y, 7 * sc, 3.4 * sc, 0);
+        });
+      })(pebbles[i]);
+    }
+
+    if (st.speed > 1.15) {
+      var a = (st.speed - 1.15) * 0.5;
+      ctx.fillStyle = 'rgba(255,255,255,' + Math.min(0.3, a).toFixed(3) + ')';
+      for (var k = 0; k < 7; k++) {
+        var yy = GL + 26 + (k / 7) * span;
+        var off = (st.time * 900 + k * 260) % (Wd + 420);
+        ctx.fillRect(Wd + 60 - off, yy, 130 + k * 22, 2.4);
+      }
+    }
+  }
+
+  function drawForeground() {
+    var top = Hd - 96;
+    var g = ctx.createLinearGradient(0, top, 0, Hd + 8);
+    g.addColorStop(0, '#93da7a');
+    g.addColorStop(0.55, '#7ccb66');
+    g.addColorStop(1, '#5fae52');
+    ctx.fillStyle = g;
+    ctx.fillRect(-12, top + 12, Wd + 24, Hd - top + 16);
+
+    ctx.strokeStyle = 'rgba(255,255,255,.22)';
+    ctx.lineWidth = 2;
+
+    for (var i = 0; i < tufts.length; i++) {
+      (function (tf) {
+        copies(1.55, function (x0) {
+          var x = x0 + tf.u * TILE;
+          var sway = Math.sin(st.time * 1.5 + tf.ph) * 2.6;
+          ctx.save();
+          ctx.translate(x, top + 14);
+          ctx.scale(tf.s, tf.s);
+          ctx.fillStyle = tf.tone < 0.4 ? '#7fce69' : (tf.tone < 0.75 ? '#96dd7c' : '#b0e88f');
+          var h = tf.h;
+          ctx.beginPath();
+          ctx.moveTo(-8, 4);
+          ctx.quadraticCurveTo(-11 + sway, -h * 0.55, -6 + sway * 1.6, -h);
+          ctx.quadraticCurveTo(-1 + sway, -h * 0.5, 0, 6);
+          ctx.closePath(); ctx.fill();
+          ctx.beginPath();
+          ctx.moveTo(-1, 4);
+          ctx.quadraticCurveTo(2 + sway * 1.2, -h * 0.62, 7 + sway * 1.9, -h * 1.06);
+          ctx.quadraticCurveTo(9 + sway, -h * 0.5, 8, 6);
+          ctx.closePath(); ctx.fill();
+          if (tf.tone > 0.72) {
+            var fy = 4 - h * 0.86;
+            ctx.fillStyle = '#fff2b8';
+            circle(7 + sway * 1.9, fy, 3.4);
+            ctx.fillStyle = '#ffd9e7';
+            circle(-6 + sway * 1.6, 4 - h * 0.7, 3);
+          }
+          ctx.restore();
+        });
+      })(tufts[i]);
+    }
+  }
+
+  function drawDust() {
+    for (var i = 0; i < st.dust.length; i++) {
+      var d = st.dust[i];
+      var k = 1 - d.life / d.max;
+      ctx.fillStyle = 'rgba(246,233,206,' + (0.55 * k).toFixed(3) + ')';
+      circle(d.x, d.y, d.r * (0.55 + k * 0.75));
+    }
+  }
+
+  function drawRings() {
+    for (var i = 0; i < st.rings.length; i++) {
+      var r = st.rings[i], p = r.t / 1.35;
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, 1 - p);
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2.6 * (1 - p * 0.6);
+      ctx.beginPath();
+      ctx.arc(r.x, r.y, 9 + p * 46, 0, TAU);
+      ctx.stroke();
+      ctx.fillStyle = '#2c5b70';
+      ctx.font = '600 20px "PingFang SC","Microsoft YaHei",sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('叮铃', r.x + 4, r.y - 26 - p * 26);
+      ctx.restore();
+    }
+  }
+
+  /* =========================================================
+     5. 主角：鹈鹕 + 自行车
+     ========================================================= */
+  var R = 47;                 // 车轮半径
+  var RH = { x: -78, y: -47 };   // 后轮毂
+  var FH = { x: 78, y: -47 };    // 前轮毂
+  var BB = { x: 0, y: -44 };     // 中轴
+  var SEAT = { x: -32, y: -112 };
+  var HEADT = { x: 50, y: -92 };
+  var BAR = { x: 56, y: -110 };
+  var HIP = { x: -28, y: -116 };
+  var CR = 21;                // 曲柄长度
+  var L1 = 50, L2 = 50;       // 大腿 / 小腿
+
+  var C = {
+    tire: '#3c434a',
+    rim: '#f4f8fb',
+    spoke: 'rgba(122,136,148,.8)',
+    frameDark: '#1f9c92',
+    frame: '#38c3b4',
+    frameHi: 'rgba(255,255,255,.5)',
+    chain: '#5d6a74',
+    saddle: '#aa7042',
+    saddleHi: '#c78a56',
+    feather: '#fdfefe',
+    featherShade: '#e6edf3',
+    featherLine: '#d5dfe7',
+    beak: '#f6b23c',
+    beakDark: '#dd952b',
+    pouch: '#ffd98b',
+    pouchDark: '#e8b25a',
+    leg: '#ff9e42',
+    legDark: '#e8873a',
+    scarf: '#ff7c6b',
+    scarfHi: '#ff9c8d'
+  };
+
+  function drawWheels(rot) {
+    var hubs = [RH, FH];
+    for (var h = 0; h < 2; h++) {
+      ctx.save();
+      ctx.translate(hubs[h].x, hubs[h].y);
+
+      ctx.beginPath(); ctx.arc(0, 0, R, 0, TAU);
+      ctx.lineWidth = 9; ctx.strokeStyle = C.tire; ctx.stroke();
+      ctx.beginPath(); ctx.arc(0, 0, R - 5.5, 0, TAU);
+      ctx.lineWidth = 3.4; ctx.strokeStyle = C.rim; ctx.stroke();
+      ctx.beginPath(); ctx.arc(0, 0, R - 1.5, 0, TAU);
+      ctx.lineWidth = 1.4; ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.stroke();
+
+      ctx.rotate(rot);
+      ctx.strokeStyle = C.spoke;
+      ctx.lineWidth = 1.3;
+      for (var i = 0; i < 10; i++) {
+        var a = (i / 10) * TAU;
+        var ca = Math.cos(a) * (R - 8), sa = Math.sin(a) * (R - 8);
+        ctx.beginPath();
+        ctx.moveTo(ca, sa);
+        ctx.lineTo(-ca, -sa);
+        ctx.stroke();
+      }
+      ctx.fillStyle = '#eef3f7';
+      circle(0, 0, 5.4);
+      ctx.fillStyle = '#c7d3dc';
+      circle(0, 0, 2.4);
+      ctx.restore();
+    }
+  }
+
+  function drawFrame() {
+    var tubes = [
+      [RH.x, RH.y, BB.x, BB.y],
+      [RH.x, RH.y, SEAT.x, SEAT.y],
+      [BB.x, BB.y, SEAT.x, SEAT.y],
+      [BB.x, BB.y, HEADT.x, HEADT.y],
+      [SEAT.x, SEAT.y, HEADT.x, HEADT.y],
+      [HEADT.x, HEADT.y, FH.x, FH.y],
+      [HEADT.x, HEADT.y, BAR.x, BAR.y]
+    ];
+    var i;
+    for (i = 0; i < tubes.length; i++) {
+      seg(tubes[i][0], tubes[i][1], tubes[i][2], tubes[i][3], 9.4, C.frameDark);
+    }
+    for (i = 0; i < tubes.length; i++) {
+      seg(tubes[i][0], tubes[i][1], tubes[i][2], tubes[i][3], 6, C.frame);
+    }
+    seg(SEAT.x, SEAT.y, HEADT.x, HEADT.y, 1.6, C.frameHi);
+
+    // 链条
+    seg(BB.x, BB.y - 13, RH.x, RH.y - 8, 2.6, C.chain);
+    seg(BB.x, BB.y + 13, RH.x, RH.y + 8, 2.6, C.chain);
+    ctx.fillStyle = '#dfe8ee'; circle(BB.x, BB.y, 13);
+    ctx.fillStyle = '#b9c7d1'; circle(BB.x, BB.y, 10);
+    ctx.fillStyle = '#e6eef4'; circle(RH.x, RH.y, 8);
+
+    // 车座
+    ctx.save();
+    ctx.translate(SEAT.x - 4, SEAT.y - 5);
+    ctx.rotate(-0.1);
+    ctx.fillStyle = '#8d5b34'; ell(0, 1.5, 19, 7, 0);
+    ctx.fillStyle = C.saddle; ell(0, 0, 19, 6, 0);
+    ctx.fillStyle = C.saddleHi; ell(-4, -2, 11, 2.6, 0);
+    ctx.restore();
+
+    // 车把（向后弯向骑手）+ 铃
+    var barPts = quadPts([BAR.x, BAR.y], [BAR.x + 6, BAR.y - 12], [BAR.x - 26, BAR.y - 4], 12);
+    ribbonPath(barPts, 3.4, 3.0);
+    ctx.fillStyle = C.frameDark; ctx.fill();
+    var grip = barPts[barPts.length - 1];
+    ctx.save();
+    ctx.translate(grip[0] - 4, grip[1] - 0.5);
+    ctx.rotate(-0.34);
+    ctx.fillStyle = '#3c434a';
+    rr(-9, -4, 17, 8, 4); ctx.fill();
+    ctx.restore();
+
+    ctx.fillStyle = '#e9b93f';
+    circle(BAR.x - 10, BAR.y - 12, 6.4);
+    ctx.fillStyle = '#f8d873';
+    circle(BAR.x - 11, BAR.y - 13.5, 3.4);
+    ctx.fillStyle = '#c9a02f';
+    seg(BAR.x - 10, BAR.y - 6, BAR.x - 10, BAR.y - 2, 2, '#c9a02f');
+  }
+
+  function crankPos(ang) {
+    return { x: BB.x + Math.cos(ang) * CR, y: BB.y + Math.sin(ang) * CR };
+  }
+
+  function drawCrankArm(ang, near) {
+    var p = crankPos(ang);
+    var col = near ? '#8fa0ac' : '#798b98';
+    seg(BB.x, BB.y, p.x, p.y, near ? 7 : 6.4, col);
+    ctx.fillStyle = near ? '#dbe4ea' : '#c4d0d9';
+    circle(p.x, p.y, 4.6);
+    ctx.save();
+    ctx.translate(p.x, p.y - 1);
+    ctx.fillStyle = near ? '#3c434a' : '#4d565e';
+    rr(-9, -2.6, 18, 5.4, 2.4); ctx.fill();
+    ctx.restore();
+    return p;
+  }
+
+  function drawFoot(x, y, near) {
+    ctx.save();
+    ctx.translate(x, y - 2);
+    ctx.fillStyle = near ? C.leg : C.legDark;
+    ctx.beginPath();
+    ctx.moveTo(-5, -7.5);
+    ctx.quadraticCurveTo(15, -9.5, 22, -1);
+    ctx.quadraticCurveTo(15, 6.5, -5, 7.5);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(190,100,20,.45)';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(4, -6.5); ctx.lineTo(9, 5.5);
+    ctx.moveTo(11, -5); ctx.lineTo(14, 4);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawLeg(ang, near) {
+    var p = crankPos(ang);
+    var knee = ik(HIP.x, HIP.y, p.x, p.y, L1, L2, -1);
+    var thighCol = near ? C.leg : C.legDark;
+    seg(HIP.x, HIP.y, knee.x, knee.y, 13, thighCol);
+    seg(knee.x, knee.y, p.x, p.y - 2, 10.5, thighCol);
+    ctx.fillStyle = thighCol;
+    circle(knee.x, knee.y, 6.2);
+    ctx.fillStyle = 'rgba(255,255,255,.28)';
+    circle(knee.x - 1.4, knee.y - 1.8, 2.4);
+    if (!near) {
+      ctx.fillStyle = thighCol;
+      circle(HIP.x, HIP.y, 6.4);
+    }
+    return p;
+  }
+
+  function drawFarWing() {
+    ctx.save();
+    ctx.translate(-30, -170);
+    ctx.rotate(-0.16);
+    ctx.fillStyle = C.featherShade;
+    ctx.beginPath();
+    ctx.moveTo(8, -6);
+    ctx.quadraticCurveTo(-34, -22, -74, -4);
+    ctx.quadraticCurveTo(-54, 12, 4, 8);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawWing(t, flap) {
+    var a = 0.03 * Math.sin(t * 2.3) - flap;
+    ctx.save();
+    ctx.translate(-26, -164);
+    ctx.rotate(a);
+    ctx.fillStyle = C.feather;
+    ctx.beginPath();
+    ctx.moveTo(10, -13);
+    ctx.quadraticCurveTo(-32, -30, -78, -8);
+    ctx.quadraticCurveTo(-88, -2, -80, 6);
+    ctx.quadraticCurveTo(-66, 12, -56, 20);
+    ctx.quadraticCurveTo(-36, 26, 8, 12);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = C.featherLine;
+    ctx.lineWidth = 1.6;
+    ctx.stroke();
+
+    ctx.strokeStyle = C.featherLine;
+    ctx.lineWidth = 1.3;
+    ctx.beginPath();
+    ctx.moveTo(-24, -16); ctx.quadraticCurveTo(-42, -4, -50, 14);
+    ctx.moveTo(-42, -12); ctx.quadraticCurveTo(-58, -2, -62, 16);
+    ctx.moveTo(-60, -9); ctx.quadraticCurveTo(-72, -1, -74, 12);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawTail(t) {
+    var sway = Math.sin(t * 2.1) * 0.05;
+    ctx.save();
+    ctx.translate(-80, -150);
+    ctx.rotate(-0.32 + sway);
+    for (var i = 0; i < 3; i++) {
+      ctx.save();
+      ctx.rotate((i - 1) * 0.26);
+      var pts = [[0, 0], [-16, -8], [-42, -14]];
+      ribbonPath(pts, 6.5, 2.6);
+      ctx.fillStyle = i === 1 ? C.feather : C.featherShade;
+      ctx.fill();
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  function drawPelican(t, flap) {
+    var sag = 3 + Math.sin(t * 3.1) * 2.6 + Math.sin(t * 7.3) * 1.1;
+
+    // 尾羽 / 远侧翅膀
+    drawTail(t);
+    drawFarWing();
+
+    // 身体
+    ctx.fillStyle = C.featherShade;
+    ell(-38, -146, 53, 40, -0.14);
+    ctx.fillStyle = C.feather;
+    ell(-41, -150, 50, 37, -0.14);
+    ctx.fillStyle = 'rgba(255,255,255,.9)';
+    ell(-48, -162, 30, 18, -0.28);
+
+    // 脖子
+    var neck = quadPts([-2, -170], [10, -208], [30, -218], 16);
+    ribbonPath(neck, 21, 12.5);
+    ctx.fillStyle = C.feather; ctx.fill();
+    ctx.strokeStyle = C.featherLine; ctx.lineWidth = 1.4; ctx.stroke();
+
+    // 围巾
+    var s1 = wavy(-2, -180, -112, -196, 12, 5.6, -t * 7.5, 22);
+    ribbonPath(s1, 8, 3.4);
+    ctx.fillStyle = C.scarf; ctx.fill();
+    var s2 = wavy(-4, -182, -96, -212, 15, 6.4, -t * 8.4 + 1.1, 22);
+    ribbonPath(s2, 6, 2.6);
+    ctx.fillStyle = C.scarfHi; ctx.fill();
+    ctx.fillStyle = C.scarf;
+    ell(0, -180, 15, 9, -0.35);
+
+    // 头
+    ctx.fillStyle = C.featherShade; circle(30, -224, 21.5);
+    ctx.fillStyle = C.feather; circle(29, -226, 20);
+    ctx.strokeStyle = C.featherLine; ctx.lineWidth = 1.4; ctx.stroke();
+    ctx.fillStyle = C.feather;
+    for (var i = 0; i < 3; i++) {
+      ctx.save();
+      ctx.translate(12, -240 + i * 2.5);
+      ctx.rotate(-0.5 - i * 0.22 + Math.sin(t * 3 + i) * 0.03);
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.quadraticCurveTo(-12, -3, -19, 2);
+      ctx.quadraticCurveTo(-10, 3, 0, 0);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // 喙（上颚）
+    ctx.beginPath();
+    ctx.moveTo(40, -236);
+    ctx.quadraticCurveTo(78, -234, 106, -216);
+    ctx.quadraticCurveTo(80, -217, 44, -223);
+    ctx.closePath();
+    ctx.fillStyle = C.beak; ctx.fill();
+    ctx.strokeStyle = C.beakDark; ctx.lineWidth = 1.4; ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(46, -232);
+    ctx.quadraticCurveTo(78, -229, 100, -216.5);
+    ctx.strokeStyle = 'rgba(255,255,255,.5)';
+    ctx.lineWidth = 1.6;
+    ctx.stroke();
+    ctx.fillStyle = C.beakDark;
+    circle(58, -230, 1.9);
+
+    // 喉囊
+    ctx.beginPath();
+    ctx.moveTo(44, -224);
+    ctx.quadraticCurveTo(60, -178 + sag, 100, -212);
+    ctx.quadraticCurveTo(72, -217, 44, -224);
+    ctx.closePath();
+    ctx.fillStyle = C.pouch; ctx.fill();
+    ctx.strokeStyle = C.pouchDark; ctx.lineWidth = 1.4; ctx.stroke();
+    ctx.strokeStyle = 'rgba(224,164,74,.5)';
+    ctx.lineWidth = 1.1;
+    ctx.beginPath();
+    ctx.moveTo(52, -214); ctx.quadraticCurveTo(66, -196 + sag * 0.8, 86, -206);
+    ctx.moveTo(58, -208); ctx.quadraticCurveTo(70, -194 + sag * 0.6, 82, -200);
+    ctx.stroke();
+
+    // 眼睛
+    ctx.fillStyle = '#ffffff'; circle(40, -233, 6.6);
+    ctx.fillStyle = '#f4d34e'; circle(40, -233, 5.2);
+    ctx.fillStyle = '#2c3236'; circle(40.8, -233.2, 3.1);
+    ctx.fillStyle = '#ffffff'; circle(42, -234.6, 1.3);
+    ctx.strokeStyle = '#cfd8de';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(40, -233, 7.6, Math.PI * 1.15, Math.PI * 1.9);
+    ctx.stroke();
+
+    // 近侧翅膀
+    drawWing(t, flap);
+  }
+
+  function drawRig() {
+    var t = st.time;
+    var wheelRot = dist / R;
+    var crank = dist / (R * 2.35);
+    var bobAmp = Math.sin(dist / 42) * 2.1;
+    var airborne = st.hopT >= 0;
+    var bob = airborne ? bobAmp * 0.2 : bobAmp;
+    var sway = airborne ? 0 : Math.sin(dist / 61) * 0.012;
+    var hopP = airborne ? Math.min(1, st.hopT / 0.92) : 0;
+    var flap = airborne ? Math.sin(hopP * Math.PI * 2) * 0.42 : 0;
+
+    // 地面投影
+    ctx.save();
+    ctx.globalAlpha = 0.16 * (1 - Math.min(1, st.hopY / 70));
+    ctx.fillStyle = '#8a7550';
+    var shW = 118 * (1 - st.hopY / 260);
+    ell(BX - 4 * RS, GL + 5, shW * RS, 11 * RS, 0);
+    ctx.restore();
+
+    ctx.save();
+    ctx.translate(BX, GL);
+    ctx.scale(RS, RS);
+    ctx.rotate(sway - st.hopTilt);
+    ctx.translate(0, -(bob + st.hopY));
+
+    // 远侧曲柄 + 腿
+    drawCrankArm(crank + Math.PI, false);
+    var farPedal = drawLeg(crank + Math.PI, false);
+    drawFoot(farPedal.x, farPedal.y, false);
+
+    drawWheels(wheelRot);
+    drawFrame();
+    drawPelican(t, flap);
+
+    // 近侧曲柄 + 腿
+    drawCrankArm(crank, true);
+    var nearPedal = drawLeg(crank, true);
+    drawFoot(nearPedal.x, nearPedal.y, true);
+
+    ctx.restore();
+  }
+
+  /* =========================================================
+     6. 主循环
+     ========================================================= */
+  function render() {
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    ctx.save();
+    ctx.scale(S, S);
+    ctx.fillStyle = '#bfe9fb';
+    ctx.fillRect(0, 0, Wd + 1, Hd + 1);
+
+    drawSky();
+    drawSun();
+    drawClouds();
+    drawBirds();
+    drawSea();
+    drawBoats();
+    drawHills();
+    drawTrees();
+    drawBushes();
+    drawRoad();
+    drawForeground();
+    drawDust();
+    drawRig();
+    drawRings();
+
+    // 轻微晨光提亮
+    ctx.fillStyle = 'rgba(255,251,236,.05)';
+    ctx.fillRect(0, 0, Wd + 1, Hd + 1);
+
+    ctx.restore();
+  }
+
+  function frame(now) {
+    requestAnimationFrame(frame);
+    if (!st.last) st.last = now;
+    var dt = (now - st.last) / 1000;
+    st.last = now;
+    if (dt > 0.05) dt = 0.05;
+
+    if (st.playing) {
+      st.time += dt;
+      dist += 250 * st.speed * dt;
+      updateHop(dt);
+      updateDust(dt);
+      updateRings(dt);
+    }
+    render();
+  }
+
+  /* =========================================================
+     7. 交互
+     ========================================================= */
+  var playBtn = document.getElementById('playBtn');
+  playBtn.addEventListener('click', function () {
+    st.playing = !st.playing;
+    playBtn.textContent = st.playing ? '暂停' : '播放';
+    playBtn.classList.toggle('on', st.playing);
+    st.last = 0;
+  });
+
+  var speedEl = document.getElementById('speed');
+  speedEl.addEventListener('input', function () {
+    st.speed = parseFloat(speedEl.value) || 1;
+  });
+
+  document.getElementById('hopBtn').addEventListener('click', doHop);
+  cvs.addEventListener('pointerdown', doHop);
+  window.addEventListener('keydown', function (e) {
+    if (e.code === 'Space' || e.code === 'Enter') {
+      e.preventDefault();
+      doHop();
+    } else if (e.key === 'p' || e.key === 'P') {
+      playBtn.click();
+    }
+  });
+  document.addEventListener('visibilitychange', function () {
+    st.last = 0;
+  });
+
+  resize();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
